@@ -1,0 +1,116 @@
+---
+title: "A Pipeline for Mapping FDA-Approved Nucleic Acid Amplification Tests (NAATs) to NCBI Taxonomy"
+description: |
+  A workflow dedicated to mapping FDA-Cleared / Approved IVDs Nucleic Acid Amplification Tests (NAATs) to pathogen taxonomic names.
+author:
+  - name: Manuel X. Duval
+    url: https://github.com/double-strand/IVDmicrobialNAATregistry
+    affiliation: double-strand llc
+    affiliation_url: https://www.double-strand.com/
+    orcid_id: 0000-0001-5395-4543
+date: "`r Sys.Date()`"
+bibliography: biblio.bib
+nocite: '@*'
+output:
+  distill::distill_article:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Abstract
+In vitro diagnostics (IVDs), specifically Nucleic Acid Amplification Tests (NAATs), are regulated and cataloged by the United States Food and Drug Administration (FDA) using human-readable clinical labels. However, these regulatory designations frequently lack alignment with standardized biological nomenclature, creating a significant barrier for automated post-market surveillance (e.g., for in silico inclusivity audits) and bioinformatic pipelines. This publication describes the construction of a reproducible mapping resource that translates FDA-approved microbial NAAT records into machine-readable biological identifiers. By synthesizing clinical diagnostic logic, taxonomic normalization rules, and Named Entity Recognition (NER) over 510(k) Premarket Notification summaries, the pipeline expanded the initial dataset into a robust mapping of 457 unique pathogen-to-submission entries linked explicitly to NCBI Taxonomy IDs.
+
+## Introduction
+The FDA’s resource for microbial nucleic acid-based tests serves as the authoritative registry for authorized molecular diagnostics in the United States [@fda2024nucleic]. While invaluable to clinical practitioners and regulatory auditors, the underlying dataset presents distinct challenges for bioinformaticians. Pathogens are tracked using highly variable, non-standardized text attributes (e.g., "Microorganism" or clinical indications) rather than formal taxonomic nomenclature.
+
+To perform computational validation of these assays—such as executing automated genomic inclusivity checks against newly emerging viral variants or bacterial strains [@bartlett2022bacterial, @taylor2001risk]—the "Human-Readable Clinical Text" must be mapped systematically to "Machine-Readable Biological Identifiers," specifically, the National Center for Biotechnology Information (NCBI) Taxonomy identifier (TaxId) [@schoch2020ncbi]. Building this mapping requires a rigorous biocuration effort synthesizing three distinct layers of knowledge: clinical diagnostics, pathogen nomenclature, and bioinformatic search patterns [@bodenreider2004umls]. This paper details the workflow developed to resolve this discrepancy and presents the resulting structured dataset referred to as FDA510kPathogens.
+
+## Results
+The scope of the presented workflow was to map each FDA 510(k) Nucleic Acid Based Microbial Test submission to an approved taxonomic nomenclature. Among the initial FDA records, only 20% of the 'Microorganism' field values mapped directly to the NCBI Taxonomy database (e.g., *Coxiella burnetii* or *Bacillus anthracis*). The remaining 80% of records required programmatic assignment to valid taxonomic identifiers, which was achieved through a series of four consecutive steps (Figure 1).
+
+```{r workflow-diagram, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Workflow diagram applied to assign FDAregulatoryLabel to NCBI Taxonomy TaxId.", layout="l-body-outset"}
+# Source the R script defining the dot_src and COL variables
+source("FDA510kpathogens_workflow_diagram.R")
+
+# Explicitly print the grViz widget to render it in the HTML document
+DiagrammeR::grViz(dot_src)
+```
+
+
+First, it was necessary to distinguish true nucleic acid amplification tests (NAATs) from assays relying solely on nucleic acid hybridization. Because the primary utility of this mapping exercise is to enable developers to monitor oligonucleotide performance (inclusivity and specificity) over a product's lifecycle, only NAAT-based assays were retained for NCBI TaxID assignment. In 510(k) summaries, the underlying technology is typically explicitly stated in predictable sections (e.g., 'Device Description', 'Intended Use', or 'Technological Characteristics'). Because this vocabulary is well-bounded, hybridization-based and amplification-based assays utilize distinct terminology. This enabled a Technology Classification step (Step 3) implemented via the R ellmer package [@wickham2026ellmer], which interfaces with the Gemini multimodal Large Language Model (LLM) [@gemini2023]. Consequently, non-amplification technologies—such as Hybrid Capture 2 (Digene), branched DNA (bDNA) assays, and in situ hybridization (FISH) submissions—were excluded prior to the organism extraction phase. This classification step required fetching the FDA summary PDFs; a total of 167 records for which PDFs could not be retrieved were excluded from downstream processing.
+
+Subsequent expansion of multi-agent labels (e.g., 'CT/GC') and acronyms successfully resolved 13 records (e.g., *Chlamydia trachomatis* and *Streptococcus pyogenes*). For any FDAregulatoryLabels that remained unresolved, the pipeline utilized a secondary LLM Named Entity Recognition (NER) step to extract target pathogen species names from the PDF summaries. A critical aspect of the prompt engineering for this step was the explicit exclusion of off-panel species (i.e., organisms tested solely for cross-reactivity or analytical specificity).
+
+Finally, expanding FDAregulatoryLabels that initially mapped to the Genus level or higher into their cognate species sets significantly increased dataset resolution. Through the deconvolution of syndromic multiplex panels and multi-target assays, the initial raw dataset of 436 FDA records was expanded into a highly granular master mapping file containing 457 unique pathogen-to-submission entries. The final product, FDA510kPathogens_NAAT, contains 457 records with the following attributes: TaxID, FDAregulatoryLabels, Submissions, rank, division, scientificname, commonname, genus, species, subsp, Technology, and Submission_Count. The latter attribute quantifies the number of 510(k) submissions mapped to each specific pathogen. This curated repository enables computational biologists to query an FDA 510(k) identifier and retrieve the precise clade of targeted pathogens via validated NCBI taxonomy keys, mitigating the risk of false-negative mismatches caused by inconsistent clinical terminology during large-scale post-market surveillance.
+
+## Discussion
+While nucleic acid amplification tests (NAATs) remain the most analytically sensitive modalities for pathogen detection, their regulatory documentation presents a significant informatics bottleneck. Within Tier 1 of the U.S. diagnostics market, the FDA publicly catalogs these cleared and approved in vitro diagnostics (IVDs). However, despite serving as the definitive reference for stakeholders, the bioinformatics utility of this catalog has historically been limited by a lack of valid, standardized taxonomic nomenclature in its 'Microorganism' data field. To address this gap, this study introduced a standardized pipeline that successfully bridges the regulatory-bioinformatic divide by programmatically mapping free-text pathogen entries to unique NCBI Taxonomy Identifiers (TaxIDs). Resolving human-readable regulatory metadata into machine-actionable biological descriptors is an essential prerequisite for data-driven, post-market surveillance. By systematically normalizing, partitioning, and enriching FDA regulatory registries, the framework established here lays the vital groundwork for the continuous, automated in silico validation of critical molecular assays against mutating global pathogen populations [@bartlett2022bacterial; @taylor2001risk].
+
+## Methods
+
+### Data Ingestion and Architecture (Steps 1–4)
+The FDA's List of Microbial Tests is the primary data source [@fda2024nucleic]. The initial ingestion step populated a core dataframe (microbial_df) consisting of 436 records as of July 2026, defined by 4 foundational attributes:  
+   **Microorganism**: The raw regulatory textual label.  
+   **Trade.Name**: The commercial identifier of the assay.  
+    **Manufacturer**: The producing diagnostic entity.  
+    **Submission**: The unique FDA 510(k) or De Novo Submission ID.   
+
+A one-to-many relationship exists between the raw regulatory textual label (i.e., Microorganism) and the FDA Submission ID, reflecting instances where multiple distinct NAATs have been cleared or approved for the same target pathogen. To maintain the unique relationships between regulatory labels and their respective Submission IDs, an intermediate dataframe object named organism_mapping was instantiated. This dataframe retained only non-duplicated instances of the 'Microorganism' field mapped directly to their respective Submission IDs. For all subsequent downstream processing, this initial data source attribute was renamed and standardized to the FDAregulatoryLabels variable.
+
+Next, a stringent validation layer was applied to make sure that selected entries rely on technologies that are bona-fide Nucleic Acid Amplification Tests. The workflow programmatically fetched the raw PDF Decision Summary documents for every unique Submission ID from the FDA 510(k) Premarket Notification Database [@fda2024510k]. A Large Language Model (LLM) technology classifier was executed against these documents to verify the underlying assay methodology [@wickham2026ellmer; @gemini2023]. The classifier evaluated the text and outputted a validated dataset (submission_tech_df), which was subsequently filtered to strictly isolate Nucleic Acid Amplification Tests (NAATs), producing a curated list of IDs (naat_submissions). Finally, the initial microbial_df and organism_mapping datasets were aggressively filtered to include only these validated NAAT submissions.
+
+### Algorithmic Partitioning and Normalization (Steps 5–7)
+Before applying algorithmic text partitioning, a specialized normalization layer (pathogen_synonyms) was designed to correct systemic semantic variations common to historical regulatory filings:  
+  **Taxonomic Reconciliation and Orthographic Standardization**: Regulatory filings frequently contain typographical errors (e.g., *Entercoccus*), non-standard pluralizations or formatting (e.g., *Streptococci*, *Leishmaniaspecies*), and outdated historical classifications. Because downstream sequence databases strictly adhere to formal international nomenclature codes, a transformation step was implemented to identify and map these text artifacts to their currently accepted valid names. This step resolves spelling anomalies and legacy Latin orthography (e.g., correcting *Candida parapsilosiis* to *Candida parapsilosis*) while formally updating reclassified taxa to modern nomenclature (e.g., updating *Clostridium difficile* to *Clostridioides difficile*, and *Candida kruseii* to *Pichia kudriavzevii*).  
+   **Clinical Shorthand and Acronym Resolution**: Public health and clinical workflows rely heavily on abbreviations absent from genomic reference indices. The workflow utilizes a specialized lookup table (acronym_map) to translate shorthand into binary nomenclature based on historical "Indications for Use":
+    *   Strep A $\rightarrow$ *Streptococcus pyogenes*.  
+    *   GBS (Group B Streptococcus) $\rightarrow$ *Streptococcus agalactiae*.  
+    *   CT/GC $\rightarrow$ *Chlamydia trachomatis* and *Neisseria gonorrhoeae*.  
+   **Functional and Product-to-Host Mapping**: Certain clearance records denote a biological toxin or product rather than an intact cellular organism (e.g., "Shiga Toxin"). To render these entries bioinformatically searchable, the pipeline performs functional mapping, associating the toxin with its primary host genome target (e.g., Shiga toxin-producing *Escherichia coli* or *Shigella dysenteriae*), thereby linking the entry to standard genomic loci like *stx1* or *stx2*.  
+   **Taxonomic Group Collapse**: Where clearances cover broad groups (e.g., *Leishmania* species or *Mycobacterium* species), the trailing specifiers are stripped. The pipeline isolates the base genus string, as root genus queries represent the optimal way to extract whole-clade sequences for inclusivity audits within the NCBI Taxonomy schema [@schoch2020ncbi].  
+
+### Complexity-Stratified Taxonomic Resolution
+To translate the filtered clinical labels into machine-readable taxonomy, the unique organism_mapping dataset was bifurcated based on string complexity (Step 5):  
+   **Subset 1 (Simple Taxonomy)**: This partition captured simple FDAregulatoryLabels matching strict binomial patterns (two alphanumeric words) or specific diagnostic uninomials (e.g., Adenovirus, Enterovirus). These clean labels were queried directly against the NCBI Taxonomy database [@schoch2020ncbi; @winter2017rentrez]. Successful resolutions were assigned their corresponding TaxIDs and written to an initial mapping table (pathogen_set1).  
+   **Subset 2 (Complex/Syndromic Taxonomy)**: This partition intercepted noisy labels, multi-agent multiplex panels, and nested clinical abbreviations. Compound targets separated by slash delimiters (e.g., "CT/GC") were structurally expanded into separate row iterations. A specialized lookup architecture applied acronym expansion (e.g., converting "CT/GC" to *Chlamydia trachomatis* and *Neisseria gonorrhoeae*). Following expansion and normalization, these terms were resolved against NCBI taxonomy [@schoch2020ncbi; @winter2017rentrez], with successful hits written to a secondary mapping table (pathogen_set2).  
+
+### Unmapped Entity Recovery via Named Entity Recognition (Step 8)
+Despite direct resolution and acronym expansion, a residual subset of 510(k) submissions remained unmapped due to highly atypical regulatory phrasing. For these specific unmapped submissions, the pipeline re-accessed their respective FDA summary PDFs. A secondary LLM, mirroring advancements in biomedical text mining [@lee2020biobert], was deployed specifically for Named Entity Recognition (NER) to parse the unstructured clinical narrative (e.g., the "Indications for Use" section) and systematically extract valid biological organism names. These LLM-extracted names were then mapped to NCBI TaxIDs [@schoch2020ncbi; @winter2017rentrez], forming the tertiary dataset (pathogen_set3).
+
+### Data Consolidation and Taxonomic Enrichment (Step 9)
+In the final operational step, the three resulting datasets (pathogen_set1, pathogen_set2, and pathogen_set3) were vertically merged. To resolve instances where identical pathogens were identified across different steps or through synonymous clinical labels, the consolidated dataset was deduplicated using the unique NCBI TaxID as the primary key.  
+
+Finally, to maximize bioinformatic utility, the pipeline utilized the standardized TaxIDs to query the NCBI database [@winter2017rentrez] and attach rich taxonomic metadata to every row—including taxonomic rank, division, genus, and species. This enrichment step produced the finalized, machine-actionable mapping resource: FDA510kPathogens.  
+
+## Data and Code Availability
+All data, lookup tables, and R source code used to generate the mappings described in this manuscript are openly available in the ampRegistry repository. The complete pipeline and the resulting FDA510kPathogens dataset can be accessed at: https://github.com/double-strand/IVDmicrobialNAATregistry.git.  
+
+
+### Appendix  
+```{r fda510k-master-table, echo=F, message=FALSE, warning=FALSE, layout="l-screen-inset"}
+library(DT)
+library(dplyr)
+
+# 1. Load the pre-computed final dataset generated by your script
+fda_data <- readRDS("data/FDA510kPathogens_NAAT.rds") # or read.csv(...)
+
+# 2. Render as an interactive datatable
+datatable(
+  fda_data,
+  caption = "Table 1: Complete interactive mapping dataset (FDA510kPathogens_NAAT).",
+  filter = "top",                  # Enables column-level filtering
+  rownames = FALSE,
+  extensions = c('Buttons'),
+  options = list(
+    pageLength = 10,
+    autoWidth = TRUE,
+    scrollX = TRUE,               # Enables horizontal scrolling for wide tables
+    dom = 'Bfrtip',
+    buttons = c('csv', 'excel')   # Allows users to download the filtered table directly
+  )
+)
+```
