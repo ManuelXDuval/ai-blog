@@ -1,15 +1,13 @@
 ################################################################################
-# pathegenList3_workflow_diagram.R
+# pathogenList3_workflow_diagram.R
 #
-# Reproduces the pathegenList3.R workflow diagram.
+# Reproduces the pathogenList3.R workflow diagram.
 # Two rendering options:
 #   Option A (default) — DiagrammeR::grViz()  → interactive HTML widget
 #   Option B           — DiagrammeR + webshot2 → static PNG / PDF for reports
 #
 # Required packages:
 #   install.packages(c("DiagrammeR", "htmlwidgets"))
-#   # For PNG/PDF export (Option B):
-#   install.packages(c("webshot2", "chromote"))
 ################################################################################
 
 library(DiagrammeR)
